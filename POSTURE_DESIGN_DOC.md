@@ -466,6 +466,10 @@ Absence State Machine:
 - Forward head and slouch detection
 - System tray icon with color status (green/yellow/red)
 - Desktop notification with correction guidance text
+<<<<<<< HEAD
+=======
+- Audio chime on bad posture detection
+>>>>>>> 1d246479bdc8a5ed84841206ec71d3036f51546b
 - Temporal smoothing (don't alert on momentary movements)
 - Alert cooldown to prevent notification fatigue
 - Basic settings (sensitivity, sound on/off)
@@ -474,7 +478,10 @@ Absence State Machine:
 **Not in MVP:**
 - Session history and statistics dashboard
 - Break reminders
+<<<<<<< HEAD
 - Audio chime on bad posture detection
+=======
+>>>>>>> 1d246479bdc8a5ed84841206ec71d3036f51546b
 - Posture score and streak tracking
 - Multiple camera support
 - Custom notification sounds
