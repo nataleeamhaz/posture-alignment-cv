@@ -68,8 +68,10 @@ source .venv/bin/activate   # macOS/Linux
 Full install (required for live testing):
 
 ```bash
-pip install mediapipe opencv-python PyQt6 numpy
+pip install -r requirements.txt
 ```
+
+> **Note:** `mediapipe` is pinned to `<0.10.22` in this branch because newer 0.10.x releases removed the legacy `mp.solutions` API that the calibration UI (`src/ui/calibration_view.py`) relies on. Installing via `requirements.txt` or `pyproject.toml` ensures a compatible version.
 
 Unit tests only (no webcam or CV deps needed):
 
