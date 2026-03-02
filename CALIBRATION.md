@@ -92,8 +92,19 @@ All 32 tests should pass in under a second with no webcam required.
 
 ### Live test with webcam
 
+**Easiest — double-click or run the launcher script:**
+
+```bash
+./launch.command
+```
+
+This sets the required Qt platform plugin path automatically.
+
+**Or run manually** (you must export the plugin path or Qt won't find the macOS cocoa plugin):
+
 ```bash
 source .venv/bin/activate
+export QT_QPA_PLATFORM_PLUGIN_PATH="$(pwd)/.venv/lib/python3.11/site-packages/PyQt6/Qt6/plugins/platforms"
 python run_calibration.py
 ```
 

@@ -12,8 +12,13 @@ Usage:
 """
 
 import json
+import os
 import sys
 from pathlib import Path
+
+# Must be set before PyQt6 is imported so Qt can find the cocoa platform plugin.
+_plugin_path = Path(__file__).parent / "qt_plugins/platforms"
+os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = str(_plugin_path)
 
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStatusBar
 

@@ -1,8 +1,7 @@
-"""Calibration UI with privacy-preserving skeleton-only camera preview.
+"""Calibration UI — live camera feed with pose landmark overlay.
 
-Per the design doc (Section 5.2), the camera preview NEVER shows raw video.
-Only the MediaPipe skeleton is rendered on a neutral grey canvas — no pixel
-data from the webcam is ever displayed in the UI.
+Shows the actual camera frame so the user can confirm they are in frame and
+that the skeleton is tracking correctly before starting calibration.
 
 Emits:
     calibration_complete(PostureBaseline) — baseline captured and ready.
@@ -20,12 +19,22 @@ from PyQt6.QtWidgets import (
     QLabel,
     QProgressBar,
     QPushButton,
-    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
-from src.calibration import CalibrationManager, CalibrationState, PostureBaseline
+from src.calibration import (
+    CalibrationManager,
+    CalibrationState,
+    PostureBaseline,
+    NOSE,
+    LEFT_EAR,
+    RIGHT_EAR,
+    LEFT_SHOULDER,
+    RIGHT_SHOULDER,
+    LEFT_HIP,
+    RIGHT_HIP,
+)
 
 # ---------------------------------------------------------------------------
 # MediaPipe helpers
@@ -39,8 +48,18 @@ _mp_drawing_styles = mp.solutions.drawing_styles
 
 PREVIEW_WIDTH = 640
 PREVIEW_HEIGHT = 480
-CANVAS_GREY = 136          # #888888 — neutral background for skeleton preview
-FRAME_INTERVAL_MS = 200    # ~5 FPS during calibration (low CPU, sufficient for preview)
+FRAME_INTERVAL_MS = 33     # ~30 FPS
+
+# BGR colors and labels for the posture-critical landmarks
+_KEY_LANDMARK_STYLE: dict[int, tuple[tuple[int, int, int], str]] = {
+    NOSE:           ((0, 255, 255), "Nose"),
+    LEFT_EAR:       ((0, 165, 255), "L. Ear"),
+    RIGHT_EAR:      ((0, 165, 255), "R. Ear"),
+    LEFT_SHOULDER:  ((0, 255, 0),   "L. Shoulder"),
+    RIGHT_SHOULDER: ((0, 255, 0),   "R. Shoulder"),
+    LEFT_HIP:       ((255, 0, 255), "L. Hip"),
+    RIGHT_HIP:      ((255, 0, 255), "R. Hip"),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -66,7 +85,7 @@ class CalibrationView(QWidget):
         self._manager = manager
         self._cap: cv2.VideoCapture | None = None
         self._pose = _mp_pose.Pose(
-            model_complexity=0,             # Lite model — lower CPU (§6.2)
+            model_complexity=0,
             min_detection_confidence=0.5,
             min_tracking_confidence=0.5,
         )
@@ -90,10 +109,9 @@ class CalibrationView(QWidget):
         self._instruction_label.setWordWrap(True)
         layout.addWidget(self._instruction_label)
 
-        # Skeleton-only preview (never shows raw camera pixels)
         self._preview = QLabel()
         self._preview.setFixedSize(PREVIEW_WIDTH, PREVIEW_HEIGHT)
-        self._preview.setStyleSheet(f"background-color: rgb({CANVAS_GREY},{CANVAS_GREY},{CANVAS_GREY});")
+        self._preview.setStyleSheet("background-color: black;")
         self._preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._preview, alignment=Qt.AlignmentFlag.AlignHCenter)
 
@@ -143,6 +161,12 @@ class CalibrationView(QWidget):
             self._cap = cv2.VideoCapture(0)
             self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, PREVIEW_WIDTH)
             self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, PREVIEW_HEIGHT)
+            if not self._cap.isOpened():
+                self._status_label.setText(
+                    "Camera not available. Grant camera access to Terminal in\n"
+                    "System Settings → Privacy & Security → Camera, then relaunch."
+                )
+                self._start_btn.setEnabled(False)
 
     def _close_camera(self) -> None:
         if self._cap is not None and self._cap.isOpened():
@@ -159,15 +183,12 @@ class CalibrationView(QWidget):
         if not ret:
             return
 
-        # Run pose estimation on raw frame (frame itself is never shown)
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         result = self._pose.process(rgb)
 
-        # Render skeleton-only canvas and update preview
-        canvas = _render_skeleton(result)
+        canvas = _render_frame(frame, result)
         self._update_preview(canvas)
 
-        # Feed into calibration manager while capturing
         if self._manager.state == CalibrationState.CAPTURING:
             self._manager.add_frame(result.pose_landmarks)
             self._progress_bar.setValue(int(self._manager.progress * 100))
@@ -225,27 +246,56 @@ class CalibrationView(QWidget):
 
 
 # ---------------------------------------------------------------------------
-# Skeleton rendering (module-level so it can be tested independently)
+# Frame rendering (module-level so it can be tested independently)
 
 
-def _render_skeleton(result) -> np.ndarray:
-    """Draw MediaPipe skeleton on a blank grey canvas.
-
-    Raw frame pixels are never included — this is the privacy guarantee
-    described in Section 5.2 of the design doc.
+def _render_frame(frame: np.ndarray, result) -> np.ndarray:
+    """Draw the camera feed with pose skeleton and highlighted posture landmarks.
 
     Args:
+        frame:  Raw BGR frame from the webcam.
         result: A MediaPipe Pose process() result.
 
     Returns:
-        A (PREVIEW_HEIGHT, PREVIEW_WIDTH, 3) uint8 BGR array.
+        A (PREVIEW_HEIGHT, PREVIEW_WIDTH, 3) uint8 BGR array ready to display.
     """
-    canvas = np.full((PREVIEW_HEIGHT, PREVIEW_WIDTH, 3), CANVAS_GREY, dtype=np.uint8)
-    if result.pose_landmarks:
-        _mp_drawing.draw_landmarks(
+    canvas = frame.copy()
+
+    if not result.pose_landmarks:
+        return canvas
+
+    # Draw all connections and generic landmarks subtly
+    _mp_drawing.draw_landmarks(
+        canvas,
+        result.pose_landmarks,
+        _mp_pose.POSE_CONNECTIONS,
+        landmark_drawing_spec=_mp_drawing.DrawingSpec(
+            color=(200, 200, 200), thickness=1, circle_radius=2
+        ),
+        connection_drawing_spec=_mp_drawing.DrawingSpec(
+            color=(180, 180, 180), thickness=1
+        ),
+    )
+
+    # Highlight the posture-critical landmarks with colored dots and labels
+    lm = result.pose_landmarks.landmark
+    for idx, (color, label) in _KEY_LANDMARK_STYLE.items():
+        pt = lm[idx]
+        if pt.visibility < 0.5:
+            continue
+        cx = int(pt.x * PREVIEW_WIDTH)
+        cy = int(pt.y * PREVIEW_HEIGHT)
+        cv2.circle(canvas, (cx, cy), 8, color, -1)
+        cv2.circle(canvas, (cx, cy), 8, (255, 255, 255), 1)  # white outline
+        cv2.putText(
             canvas,
-            result.pose_landmarks,
-            _mp_pose.POSE_CONNECTIONS,
-            landmark_drawing_spec=_mp_drawing_styles.get_default_pose_landmarks_style(),
+            label,
+            (cx + 10, cy + 4),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.5,
+            color,
+            1,
+            cv2.LINE_AA,
         )
+
     return canvas
