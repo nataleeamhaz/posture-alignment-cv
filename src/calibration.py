@@ -42,6 +42,12 @@ RIGHT_HIP = 24
 
 KEY_LANDMARKS = [NOSE, LEFT_EAR, RIGHT_EAR, LEFT_SHOULDER, RIGHT_SHOULDER, LEFT_HIP, RIGHT_HIP]
 
+LANDMARK_GROUPS: dict[str, list[int]] = {
+    "Head":      [NOSE, LEFT_EAR, RIGHT_EAR],
+    "Shoulders": [LEFT_SHOULDER, RIGHT_SHOULDER],
+    "Hips":      [LEFT_HIP, RIGHT_HIP],
+}
+
 CAPTURE_DURATION_SECONDS = 5.0
 
 
@@ -223,6 +229,31 @@ class CalibrationManager:
         averaged = _average_frames(self._frames)
         self.baseline = _compute_baseline(averaged)
         self.state = CalibrationState.COMPLETE
+
+
+# ---------------------------------------------------------------------------
+# Landmark-group visibility check
+
+
+def check_landmark_groups(landmarks, min_visibility: float = 0.5) -> dict[str, bool]:
+    """Return which landmark groups have all landmarks meeting the visibility threshold.
+
+    Args:
+        landmarks: The ``pose_landmarks`` attribute of a MediaPipe Pose result, or None.
+        min_visibility: Minimum per-landmark visibility score to count as visible.
+
+    Returns:
+        Dict mapping group name → True if every landmark in that group is visible.
+    """
+    if landmarks is None:
+        return {group: False for group in LANDMARK_GROUPS}
+    return {
+        group: all(
+            landmarks.landmark[idx].visibility >= min_visibility
+            for idx in indices
+        )
+        for group, indices in LANDMARK_GROUPS.items()
+    }
 
 
 # ---------------------------------------------------------------------------
